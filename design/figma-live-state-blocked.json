@@ -1,0 +1,12 @@
+{
+  "fileKey": "DotpmkBbAn2IrGkxg0wqfG",
+  "fileUrl": "https://www.figma.com/design/DotpmkBbAn2IrGkxg0wqfG",
+  "phase": "P2 foundations built; P3 not started",
+  "status": "blocked_by_figma_mcp_starter_quota",
+  "pages": {"foundations": "0:1", "screens": "4:4", "handoff": "4:5"},
+  "foundationFrame": "4:6",
+  "swatchRow": "4:11",
+  "createdNodes": ["4:6","4:7","4:8","4:9","4:10","4:11","4:12","4:13","4:14","4:15","4:16","4:17","4:18","4:19","4:20","4:21","4:22","4:23","4:24","4:25","4:26","4:27","4:28","4:29"],
+  "validated": ["Chinese font availability", "40 scoped variables with WEB syntax", "foundation screenshot returned and inspected"],
+  "remaining": ["5 reusable component families", "5 interface states", "real map upload", "agent handoff page", "full variable/style binding audit", "screen render inspection and correction"]
+}

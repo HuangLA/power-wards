@@ -1,0 +1,21 @@
+import {readFile} from 'node:fs/promises';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const dir=new URL('./',import.meta.url);
+const manifest=JSON.parse(await readFile(new URL('manifest.json',dir),'utf8'));
+assert.equal(manifest.documentAccess,'dynamic-page');assert.deepEqual(manifest.networkAccess.allowedDomains,['none']);
+const source=await readFile(new URL('code.js',dir),'utf8');
+const asset=await readFile(new URL('assets/map-preview.png',dir));
+assert(source.includes(asset.toString('base64')),'Embedded asset matches local file');
+let next=0;const nodes=[],styles=[];
+class Node{constructor(type){this.type=type;this.id=String(++next);this.children=[];this.width=100;this.height=100;this.x=0;this.y=0;this.data={};nodes.push(this);}appendChild(n){if(n.parent)n.parent.children=n.parent.children.filter(c=>c!==n);this.children.push(n);n.parent=this;}resize(w,h){assert(w>0&&h>0);this.width=w;this.height=h;}rescale(s){this.width*=s;this.height*=s;}setPluginData(k,v){this.data[k]=v;}findOne(fn){for(const c of this.children){if(fn(c))return c;const found=c.findOne(fn);if(found)return found;}return null;}createInstance(){const clone=n=>{const c=new Node(n.type);Object.assign(c,Object.fromEntries(Object.entries(n).filter(([k])=>!['id','children','parent'].includes(k))));c.children=[];for(const kid of n.children)c.appendChild(clone(kid));return c;};const i=clone(this);i.type='INSTANCE';return i;}}
+const old=new Node('PAGE');old.name='Existing content';const existing=new Node('FRAME');old.appendChild(existing);const pages=[old];
+let finish;const done=new Promise(r=>finish=r);
+const figma={currentPage:old,listAvailableFontsAsync:async()=>[{fontName:{family:'Noto Sans SC',style:'Regular'}}],loadFontAsync:async()=>{},createImage(bytes){assert.equal(bytes.length,asset.length);assert.deepEqual(Buffer.from(bytes),asset);return{hash:'map-hash'};},createPage(){const p=new Node('PAGE');pages.push(p);return p;},setCurrentPageAsync:async p=>{figma.currentPage=p;},createFrame:()=>new Node('FRAME'),createText:()=>new Node('TEXT'),createRectangle:()=>new Node('RECTANGLE'),createEllipse:()=>new Node('ELLIPSE'),createComponent:()=>new Node('COMPONENT'),createPaintStyle:()=>{const s={};styles.push(s);return s;},createTextStyle:()=>{const s={};styles.push(s);return s;},combineAsVariants(ns,parent){const set=new Node('COMPONENT_SET');parent.appendChild(set);ns.forEach(n=>set.appendChild(n));return set;},viewport:{scrollAndZoomIntoView(){}},closePlugin:finish};
+vm.runInNewContext(source,{figma,console,Uint8Array,Date});
+const message=await done;assert(!message.includes('失败'),message);assert.equal(pages.length,2);assert.equal(old.children.length,1);assert.equal(old.children[0],existing);
+const p=pages[1];assert.equal(p.children.length,7);for(const name of ['01 / Browse','02 / Selected','03 / Add','04 / Profile','05 / Unsaved'])assert(p.children.some(n=>n.name.startsWith(name)));
+assert.equal(nodes.filter(n=>n.type==='COMPONENT_SET').length,5);assert.equal(nodes.filter(n=>n.type==='COMPONENT').length,13);assert(nodes.filter(n=>n.type==='INSTANCE').length>80);assert(nodes.filter(n=>n.type==='TEXT'&&/示意图/.test(n.characters)).length>=4);assert.equal(styles.length,15);
+assert(!p.children.find(n=>n.name.startsWith('01 /')).findOne(n=>n.name==='Inspector / Selected ward'));
+assert(p.children.find(n=>n.name.startsWith('03 /')).findOne(n=>n.name==='Overlay / New ward classification'));
+console.log(JSON.stringify({result:'PASS — structural mock only, NOT Figma rendering',pagesCreated:1,frames:p.children.map(n=>n.name),components:13,componentSets:5,instances:nodes.filter(n=>n.type==='INSTANCE').length,styles:styles.length,embeddedImageBytes:asset.length,existingPageUnchanged:true},null,2));

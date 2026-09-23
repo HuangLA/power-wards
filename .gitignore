@@ -1,0 +1,13 @@
+# JavaScript dependencies and generated application bundles
+app/node_modules/
+app/dist/
+
+# Generated browser/Electron verification screenshots and exports
+app/verification/
+
+# TypeScript incremental build cache
+app/*.tsbuildinfo
+
+# Operating-system noise
+Thumbs.db
+.DS_Store

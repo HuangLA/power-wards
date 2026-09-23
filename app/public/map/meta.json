@@ -1,0 +1,43 @@
+{
+  "mapVersion": "7.41",
+  "width": 8909,
+  "height": 8424,
+  "tileSize": 512,
+  "levels": [
+    {
+      "scale": 0.0625,
+      "width": 557,
+      "height": 527,
+      "cols": 2,
+      "rows": 2
+    },
+    {
+      "scale": 0.125,
+      "width": 1114,
+      "height": 1053,
+      "cols": 3,
+      "rows": 3
+    },
+    {
+      "scale": 0.25,
+      "width": 2228,
+      "height": 2106,
+      "cols": 5,
+      "rows": 5
+    },
+    {
+      "scale": 0.5,
+      "width": 4455,
+      "height": 4212,
+      "cols": 9,
+      "rows": 9
+    },
+    {
+      "scale": 1,
+      "width": 8909,
+      "height": 8424,
+      "cols": 18,
+      "rows": 17
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "result": "PASS — structural mock only, NOT Figma rendering",
+  "pagesCreated": 1,
+  "frames": [
+    "00 / Components & tokens",
+    "01 / Browse / No selection",
+    "02 / Selected ward / Focus",
+    "03 / Add ward / Classification",
+    "04 / Profile management",
+    "05 / Unsaved changes / App navigation",
+    "06 / Agent handoff & constraints"
+  ],
+  "components": 13,
+  "componentSets": 5,
+  "instances": 176,
+  "styles": 15,
+  "embeddedImageBytes": 3691521,
+  "existingPageUnchanged": true
+}

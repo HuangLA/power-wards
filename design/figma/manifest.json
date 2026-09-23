@@ -1,0 +1,9 @@
+{
+  "name": "Power Wards · Editable Design Kit",
+  "id": "REPLACE_WITH_FIGMA_PLUGIN_ID",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": { "allowedDomains": ["none"] }
+}

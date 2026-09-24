@@ -6,7 +6,7 @@ Power Wards 是一个 Dota 2 侦察守卫眼位整理工具。你可以在地图
 
 ## 下载与启动
 
-Windows x64 用户从本项目的 GitHub Releases 下载 `Power-Wards-v0.1.0-win-x64.zip`，**完整解压**后运行其中的 `Power Wards.exe`。这是便携版，不需要安装；目前未做数字签名，Windows 可能显示“未知发布者”。请保留解压目录内的所有文件，不要单独移动 EXE。
+Windows x64 用户从 [v0.1.0 发布页](https://github.com/HuangLA/power-wards/releases/tag/v0.1.0) 下载 `Power-Wards-v0.1.0-win-x64.zip`，**完整解压**后运行其中的 `Power Wards.exe`。这是便携版，不需要安装；目前未做数字签名，Windows 可能显示“未知发布者”。请保留解压目录内的所有文件，不要单独移动 EXE。
 
 如果要从源码运行网页端，请安装 Node.js 和 npm，在 `app/` 目录运行：
 

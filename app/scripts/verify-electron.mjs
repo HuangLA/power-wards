@@ -12,9 +12,10 @@ fs.mkdirSync(outDir, { recursive: true });
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'power-wards-e2e-'));
 const runtimeDir = path.join(dataDir, 'runtime');
 const packagedExe = process.env.POWER_WARDS_TEST_EXECUTABLE;
+const electronFlags = process.env.POWER_WARDS_TEST_ELECTRON_FLAGS?.split(',').filter(Boolean) ?? [];
 const launchTarget = packagedExe
-  ? { executablePath: packagedExe, cwd: path.dirname(packagedExe) }
-  : { args: ['.'], cwd: appDir };
+  ? { executablePath: packagedExe, args: electronFlags, cwd: path.dirname(packagedExe) }
+  : { args: ['.', ...electronFlags], cwd: appDir };
 const testEnv = { ...process.env, POWER_WARDS_DATA_DIR: dataDir, POWER_WARDS_RUNTIME_DIR: runtimeDir };
 
 const results = [];

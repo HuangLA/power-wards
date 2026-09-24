@@ -98,6 +98,7 @@ export class AppController {
   private deleted: RemovedWard | null = null;
   private screenshotCache = new Map<string, Blob>();
   private uploadingScreenshotIds = new Set<string>();
+  private initPromise: Promise<void> | null = null;
   private savePromise: Promise<boolean> | null = null;
 
   constructor(
@@ -121,7 +122,19 @@ export class AppController {
     this.emit();
   }
 
-  async init(): Promise<void> {
+  init(): Promise<void> {
+    if (this.initPromise) return this.initPromise;
+    if (this.state.status === 'ready') return Promise.resolve();
+    const operation = this.initializeOnce();
+    this.initPromise = operation;
+    const clearPending = () => {
+      if (this.initPromise === operation) this.initPromise = null;
+    };
+    operation.then(clearPending, clearPending);
+    return operation;
+  }
+
+  private async initializeOnce(): Promise<void> {
     this.setState({ status: 'loading', startupError: null });
     try {
       const startupNotice = await this.storage.initialize?.();
@@ -131,7 +144,9 @@ export class AppController {
         await this.storage.saveProfile(profile);
         profiles = await this.storage.listProfiles();
       }
-      const first = await this.storage.loadProfile(profiles[0].id);
+      // 列表按名称展示；启动时打开最近保存的资料，避免同名 Profile 让用户误以为修改丢失。
+      const newest = profiles.reduce((selected, profile) => profile.updatedAt > selected.updatedAt ? profile : selected);
+      const first = await this.storage.loadProfile(newest.id);
       const toasts = startupNotice ? [{ id: newId(), message: startupNotice }] : this.state.toasts;
       this.setState({ status: 'ready', startupError: null, profiles, draft: clone(first), saved: clone(first), toasts });
     } catch (error) {

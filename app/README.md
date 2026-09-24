@@ -45,7 +45,7 @@ Electron 继续通过受控 IPC 将资料保存到应用数据目录 `<userData>
 npm run package:win
 ```
 
-产物在 `release/`：`Power-Wards-v0.1.0-win-x64.zip` 和对应的 `.sha256` 校验文件。解压整个 ZIP 后运行 `Power Wards.exe`。当前未签名，Windows 可能显示发布者未知的提示。重新打包同一版本前，先检查或移走旧产物；脚本不会覆盖已有文件。
+产物在 `release/`，包含 Windows 便携版 ZIP 和对应的 `.sha256` 校验文件。解压整个 ZIP 后运行 `Power Wards.exe`。当前未签名，Windows 可能显示发布者未知的提示。重新打包同一版本前，先检查或移走旧产物；脚本不会覆盖已有文件。
 
 ## 验证
 
@@ -58,6 +58,8 @@ npm run verify:electron  # Electron 桌面验证（10 项，含缓存位置、�
 ```
 
 验证结果与截图写入 `verification/`。
+
+若测试环境无法启动 Electron 的 GPU 进程，可仅在验证时设置 `POWER_WARDS_TEST_ELECTRON_FLAGS=--disable-gpu,--no-sandbox`；正式打包不使用这些参数。
 
 ## 结构
 

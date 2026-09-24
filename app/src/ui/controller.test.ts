@@ -3,6 +3,7 @@ import { MemoryStorageAdapter } from '../storage/adapter';
 import { AppController, DialogManager, ExportChoice, LeaveChoice } from './controller';
 import { decodeShare } from '../domain/share';
 import { wardMatchesTags } from '../domain/filter';
+import { createProfile } from '../domain/profile';
 
 class ScriptedDialogs implements DialogManager {
   leaveQueue: LeaveChoice[] = [];
@@ -57,6 +58,33 @@ describe('初始化与单 Profile（A01）', () => {
     expect(controller.getState().profiles).toHaveLength(1);
     expect(draft().name).toBe('我的眼位');
     expect(controller.getState().dirty).toBe(false);
+  });
+
+  it('开发模式重复初始化只创建一份默认 Profile，且不会重置当前编辑', async () => {
+    const freshStorage = new MemoryStorageAdapter();
+    const freshController = new AppController(freshStorage, new ScriptedDialogs());
+
+    await Promise.all([freshController.init(), freshController.init()]);
+    expect(await freshStorage.listProfiles()).toHaveLength(1);
+
+    freshController.beginDraft(0.3, 0.4);
+    freshController.confirmDraft(['radiant-offense']);
+    await freshController.init();
+    expect(freshController.getState().draft?.wards).toHaveLength(1);
+    expect(freshController.getState().dirty).toBe(true);
+  });
+
+  it('重新启动时打开最近保存的 Profile，即使列表第一份是旧资料', async () => {
+    const freshStorage = new MemoryStorageAdapter();
+    const older = createProfile('A 旧资料', undefined, '2026-09-01T00:00:00.000Z');
+    const newer = createProfile('Z 最近保存', undefined, '2026-09-02T00:00:00.000Z');
+    await freshStorage.saveProfile(older);
+    await freshStorage.saveProfile(newer);
+
+    const freshController = new AppController(freshStorage, new ScriptedDialogs());
+    await freshController.init();
+    expect(freshController.getState().draft?.id).toBe(newer.id);
+    expect(freshController.getState().profiles).toHaveLength(2);
   });
 
   it('本机服务暂不可用时显示启动错误，服务恢复后可重试', async () => {

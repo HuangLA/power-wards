@@ -164,7 +164,7 @@ export function MapView(props: MapViewProps) {
             alt=""
             draggable={false}
             className="map-tile"
-            style={{ left: tile.x, top: tile.y, width: tile.size + 0.6, height: tile.size + 0.6 }}
+            style={{ left: tile.x, top: tile.y, width: tile.width + 0.6, height: tile.height + 0.6 }}
           />
         ))}
         {props.wards.map((ward) => {

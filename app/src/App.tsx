@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { visibleWards } from './domain/filter';
 import { CURRENT_MAP_VERSION } from './domain/types';
+import { MAX_SHARE_FILE_BYTES } from './domain/share';
 import { MapMeta, Point, ViewState, FOCUS_SCALE_FACTOR, fitScale, fitView, focusOn, minScale } from './map/viewport';
 import { createStorage, isDesktop } from './storage/platform';
 import { AddWardPanel } from './ui/AddWardPanel';
@@ -149,6 +150,10 @@ export default function App() {
   };
 
   const importFromInput = async (file: File) => {
+    if (file.size > MAX_SHARE_FILE_BYTES) {
+      await dialogManager.notice('导入失败：文件过大，超出 10 MB 限制。');
+      return;
+    }
     const text = await file.text();
     await controller.importFlow(text);
   };
@@ -171,7 +176,18 @@ export default function App() {
   };
 
   if (state.status === 'loading') {
-    return <div className="app-loading">正在读取本地资料…</div>;
+    return <div className="app-loading">正在连接本机资料服务…</div>;
+  }
+
+  if (state.status === 'error') {
+    return (
+      <main className="app-startup-error">
+        <h1>无法打开本地资料</h1>
+        <p>{state.startupError}</p>
+        <p>开发运行请使用 <code>npm run dev</code>；正式本地运行请使用 <code>npm run local</code>。</p>
+        <button type="button" className="primary" onClick={() => void controller.init()}>重试连接</button>
+      </main>
+    );
   }
 
   return (

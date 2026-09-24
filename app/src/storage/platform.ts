@@ -1,6 +1,6 @@
 import { Profile, ProfileMeta } from '../domain/types';
 import { StorageAdapter } from './adapter';
-import { WebStorageAdapter } from './webStorage';
+import { LocalApiStorageAdapter } from './localApi';
 
 export interface DesktopBridge {
   platform: 'electron';
@@ -67,5 +67,5 @@ class ElectronStorageAdapter implements StorageAdapter {
 
 export function createStorage(): StorageAdapter {
   if (isDesktop()) return new ElectronStorageAdapter(window.powerWards!);
-  return new WebStorageAdapter();
+  return new LocalApiStorageAdapter();
 }

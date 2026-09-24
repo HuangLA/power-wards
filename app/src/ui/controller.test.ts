@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryStorageAdapter } from '../storage/adapter';
 import { AppController, DialogManager, ExportChoice, LeaveChoice } from './controller';
 import { decodeShare } from '../domain/share';
+import { wardMatchesTags } from '../domain/filter';
 
 class ScriptedDialogs implements DialogManager {
   leaveQueue: LeaveChoice[] = [];
@@ -58,6 +59,25 @@ describe('初始化与单 Profile（A01）', () => {
     expect(controller.getState().dirty).toBe(false);
   });
 
+  it('本机服务暂不可用时显示启动错误，服务恢复后可重试', async () => {
+    const reconnectStorage = new MemoryStorageAdapter() as MemoryStorageAdapter & { initialize?: () => Promise<string | null> };
+    let serviceReady = false;
+    reconnectStorage.initialize = async () => {
+      if (!serviceReady) throw new Error('本机服务离线');
+      return null;
+    };
+    const reconnectController = new AppController(reconnectStorage, new ScriptedDialogs());
+
+    await reconnectController.init();
+    expect(reconnectController.getState().status).toBe('error');
+    expect(reconnectController.getState().startupError).toBe('本机服务离线');
+
+    serviceReady = true;
+    await reconnectController.init();
+    expect(reconnectController.getState().status).toBe('ready');
+    expect(reconnectController.getState().profiles).toHaveLength(1);
+  });
+
   it('切换 Profile 后地图数据仅为当前 Profile，不叠加', async () => {
     await addWardAndConfirm();
     await controller.save();
@@ -108,6 +128,30 @@ describe('编辑与保存（A02、A03）', () => {
     expect(copy!.wards[0].name).toBe('改过的名字');
   });
 
+  it('另存为等待期间的新编辑仍留在原 Profile 并保持未保存', async () => {
+    const ward = await addWardAndConfirm();
+    controller.patchWard(ward.id, { name: '副本初始内容' });
+    const originalId = draft().id;
+    dialogs.nameQueue = ['并发副本'];
+    let releaseCopy!: () => void;
+    let notifyCopyStarted!: () => void;
+    const copyStarted = new Promise<void>((resolve) => (notifyCopyStarted = resolve));
+    storage.copyScreenshots = async () => {
+      notifyCopyStarted();
+      await new Promise<void>((resolve) => (releaseCopy = resolve));
+    };
+
+    const pendingSaveAs = controller.saveAs();
+    await copyStarted;
+    controller.patchWard(ward.id, { description: '另存为期间的新说明' });
+    releaseCopy();
+    expect(await pendingSaveAs).toBe(true);
+    expect(draft().id).toBe(originalId);
+    expect(draft().wards[0].description).toBe('另存为期间的新说明');
+    expect(controller.getState().dirty).toBe(true);
+    expect((await storage.loadProfile(controller.getState().profiles.find((p) => p.name === '并发副本')!.id))!.wards[0].description).toBe('');
+  });
+
   it('保存失败保留编辑内容与未保存标记', async () => {
     await addWardAndConfirm();
     storage.saveProfile = () => Promise.reject(new Error('磁盘错误'));
@@ -115,6 +159,57 @@ describe('编辑与保存（A02、A03）', () => {
     expect(controller.getState().dirty).toBe(true);
     expect(draft().wards).toHaveLength(1);
     expect(dialogs.notices.some((m) => m.includes('保存失败'))).toBe(true);
+  });
+
+  it('保存等待期间的新编辑不会被旧快照覆盖', async () => {
+    const ward = await addWardAndConfirm();
+    controller.patchWard(ward.id, { name: '开始保存时的名字' });
+    const writeNormally = storage.saveProfile.bind(storage);
+    let releaseWrite!: () => void;
+    let firstWrite = true;
+    storage.saveProfile = async (profile) => {
+      if (firstWrite) {
+        firstWrite = false;
+        const snapshot = structuredClone(profile);
+        await new Promise<void>((resolve) => (releaseWrite = resolve));
+        await writeNormally(snapshot);
+        return;
+      }
+      await writeNormally(profile);
+    };
+
+    const pendingSave = controller.save();
+    controller.patchWard(ward.id, { name: '保存期间的新名字' });
+    releaseWrite();
+    expect(await pendingSave).toBe(true);
+    expect(draft().wards[0].name).toBe('保存期间的新名字');
+    expect(controller.getState().saved!.wards[0].name).toBe('开始保存时的名字');
+    expect(controller.getState().dirty).toBe(true);
+
+    expect(await controller.save()).toBe(true);
+    expect(controller.getState().dirty).toBe(false);
+    expect((await storage.loadProfile(draft().id))!.wards[0].name).toBe('保存期间的新名字');
+  });
+
+  it('Profile 删除等待正在进行的保存，避免已删除资料被异步写回', async () => {
+    await addWardAndConfirm();
+    const id = draft().id;
+    const writeNormally = storage.saveProfile.bind(storage);
+    let releaseWrite!: () => void;
+    const pendingSaveGate = new Promise<void>((resolve) => (releaseWrite = resolve));
+    storage.saveProfile = async (profile) => {
+      const snapshot = structuredClone(profile);
+      await pendingSaveGate;
+      await writeNormally(snapshot);
+    };
+    dialogs.confirmQueue = [true];
+
+    const pendingSave = controller.save();
+    const pendingDelete = controller.deleteProfile(id);
+    releaseWrite();
+    expect(await pendingSave).toBe(true);
+    expect(await pendingDelete).toBe(true);
+    expect(await storage.loadProfile(id)).toBeNull();
   });
 });
 
@@ -146,6 +241,33 @@ describe('导出前保存守卫（A14）', () => {
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('save-failed');
     expect(result.content).toBeUndefined();
+  });
+
+  it('保存进行中出现新修改时阻止导出', async () => {
+    const ward = await addWardAndConfirm();
+    controller.patchWard(ward.id, { name: '导出快照' });
+    dialogs.exportQueue = ['save'];
+    const writeNormally = storage.saveProfile.bind(storage);
+    let releaseWrite!: () => void;
+    let notifyStarted!: () => void;
+    const started = new Promise<void>((resolve) => (notifyStarted = resolve));
+    storage.saveProfile = async (profile) => {
+      const snapshot = structuredClone(profile);
+      notifyStarted();
+      await new Promise<void>((resolve) => (releaseWrite = resolve));
+      await writeNormally(snapshot);
+    };
+
+    const pendingExport = controller.exportFlow();
+    await started;
+    controller.patchWard(ward.id, { description: '保存过程中新增的内容' });
+    releaseWrite();
+    const result = await pendingExport;
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('changed-during-save');
+    expect(result.content).toBeUndefined();
+    expect(controller.getState().dirty).toBe(true);
+    expect(draft().wards[0].description).toBe('保存过程中新增的内容');
   });
 
   it('无修改时直接导出当前已保存内容', async () => {
@@ -294,13 +416,35 @@ describe('删除与撤销（A15）', () => {
 });
 
 describe('筛选状态', () => {
-  it('toggleTag：从全选变为排除该项，全不选归一为不限', async () => {
+  it('点击标签从全部眼位进入单标签筛选，随后可多选和全不选', async () => {
     const ward = await addWardAndConfirm();
     controller.patchWard(ward.id, { tags: ['河道', '高台'] });
     controller.toggleTag('河道');
+    expect(controller.getState().filters.tagSelection).toEqual(new Set(['河道']));
+    controller.toggleTag('高台');
+    expect(controller.getState().filters.tagSelection).toEqual(new Set(['河道', '高台']));
+    expect(wardMatchesTags({ tags: [] }, controller.getState().filters.tagSelection)).toBe(false);
+    controller.toggleTag('河道');
     expect(controller.getState().filters.tagSelection).toEqual(new Set(['高台']));
     controller.toggleTag('高台');
+    expect(controller.getState().filters.tagSelection).toEqual(new Set());
+    expect(wardMatchesTags({ tags: ['河道'] }, controller.getState().filters.tagSelection)).toBe(false);
+    expect(wardMatchesTags({ tags: [] }, controller.getState().filters.tagSelection)).toBe(false);
+    controller.toggleFaction('dire');
+    controller.togglePurpose('defense');
+    controller.resetFilters();
     expect(controller.getState().filters.tagSelection).toBeNull();
+    expect(controller.getState().filters.factions).toEqual(new Set(['radiant', 'dire']));
+    expect(controller.getState().filters.purposes).toEqual(new Set(['offense', 'defense']));
+    expect(wardMatchesTags({ tags: [] }, controller.getState().filters.tagSelection)).toBe(true);
+  });
+
+  it('只有一个标签时，点击它会排除未标记的眼位', async () => {
+    const ward = await addWardAndConfirm();
+    controller.patchWard(ward.id, { tags: ['需要砍树'] });
+    controller.toggleTag('需要砍树');
+    expect(controller.getState().filters.tagSelection).toEqual(new Set(['需要砍树']));
+    expect(wardMatchesTags({ tags: [] }, controller.getState().filters.tagSelection)).toBe(false);
   });
 
   it('切换 Profile 后标签筛选重置，阵营/用途保留', async () => {

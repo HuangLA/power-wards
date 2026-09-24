@@ -1,6 +1,7 @@
 # JavaScript dependencies and generated application bundles
 app/node_modules/
 app/dist/
+app/release/
 
 # Generated browser/Electron verification screenshots and exports
 app/verification/

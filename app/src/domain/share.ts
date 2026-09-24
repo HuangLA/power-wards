@@ -44,6 +44,26 @@ export interface ShareFileV1 {
 
 export class ShareFormatError extends Error {}
 
+function exceedsUtf8ByteLimit(value: string, limit: number): boolean {
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x7f) bytes += 1;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i++;
+      } else {
+        bytes += 3;
+      }
+    } else bytes += 3;
+    if (bytes > limit) return true;
+  }
+  return false;
+}
+
 export function encodeProfile(profile: Profile, now: string = new Date().toISOString()): ShareFileV1 {
   return {
     format: SHARE_FORMAT,
@@ -92,7 +112,7 @@ function expectString(value: unknown, field: string, maxLength: number): string 
 }
 
 export function decodeShare(text: string): DecodedShare {
-  if (text.length > MAX_SHARE_FILE_BYTES) fail('文件过大，超出导入限制');
+  if (exceedsUtf8ByteLimit(text, MAX_SHARE_FILE_BYTES)) fail('文件过大，超出导入限制');
   let data: unknown;
   try {
     data = JSON.parse(text);

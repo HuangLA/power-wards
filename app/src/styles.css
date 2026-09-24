@@ -111,6 +111,27 @@ textarea {
   color: var(--muted);
 }
 
+.app-startup-error {
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 32px;
+  color: var(--text);
+  text-align: center;
+}
+
+.app-startup-error p {
+  max-width: 640px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.app-startup-error code {
+  color: var(--accent);
+}
+
 .app-shell {
   display: flex;
   flex-direction: column;
@@ -362,8 +383,8 @@ textarea {
   padding: 0;
   border: none;
   background: transparent;
-  transform: translate(-50%, -94%) scale(var(--inv));
-  transform-origin: 50% 100%;
+  transform: translate(-50%, -50%) scale(var(--inv));
+  transform-origin: 50% 50%;
   cursor: pointer;
 }
 

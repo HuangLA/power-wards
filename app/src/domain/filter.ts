@@ -7,29 +7,21 @@ export interface CategoryFilter {
 
 export function wardMatchesCategory(ward: Pick<Ward, 'categories'>, filter: CategoryFilter): boolean {
   const { factions, purposes } = filter;
-  if (factions.size === 0 && purposes.size === 0) return true;
+  if (factions.size === 0 || purposes.size === 0) return false;
   return ward.categories.some((key) => {
     const [faction, purpose] = splitCategoryKey(key);
-    const factionOk = factions.size === 0 || factions.has(faction);
-    const purposeOk = purposes.size === 0 || purposes.has(purpose);
-    return factionOk && purposeOk;
+    return factions.has(faction) && purposes.has(purpose);
   });
 }
 
 /**
- * 标签筛选：selected 为 null 表示不限制（初始全选 / 全部选中 / 全部不选）。
- * 部分选择时任一所选标签命中即可（OR）；无标签眼位在部分选择时不显示。
+ * 标签筛选：null 表示“全部眼位”且不限制；空集合表示全不选且无结果。
+ * 显式选择标签时任一所选标签命中即可（OR）；无标签眼位不显示。
  */
 export function wardMatchesTags(ward: Pick<Ward, 'tags'>, selected: ReadonlySet<string> | null): boolean {
   if (selected === null) return true;
-  if (selected.size === 0) return true;
+  if (selected.size === 0) return false;
   return ward.tags.some((tag) => selected.has(tag));
-}
-
-export function effectiveTagSelection(selected: ReadonlySet<string>, allTags: readonly string[]): ReadonlySet<string> | null {
-  if (selected.size === 0) return null;
-  if (allTags.every((tag) => selected.has(tag))) return null;
-  return selected;
 }
 
 export function collectAllTags(wards: readonly Pick<Ward, 'tags'>[]): string[] {

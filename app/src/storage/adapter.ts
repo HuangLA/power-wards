@@ -7,6 +7,7 @@ export interface ScreenshotData {
 }
 
 export interface StorageAdapter {
+  initialize?(): Promise<string | null>;
   listProfiles(): Promise<ProfileMeta[]>;
   loadProfile(id: string): Promise<Profile | null>;
   saveProfile(profile: Profile): Promise<void>;

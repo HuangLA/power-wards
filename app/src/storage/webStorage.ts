@@ -1,7 +1,8 @@
 import { Profile, ProfileMeta } from '../domain/types';
 import { StorageAdapter, toMeta } from './adapter';
 
-const DB_NAME = 'power-wards';
+export const LEGACY_DB_NAME = 'power-wards';
+const DB_NAME = LEGACY_DB_NAME;
 const DB_VERSION = 1;
 const PROFILE_STORE = 'profiles';
 const SCREENSHOT_STORE = 'screenshots';
@@ -44,7 +45,11 @@ function requestValue<T>(request: IDBRequest<T>): Promise<T> {
 }
 
 export class WebStorageAdapter implements StorageAdapter {
-  private dbPromise: Promise<IDBDatabase> | null = null;
+  private dbPromise: Promise<IDBDatabase> | null;
+
+  constructor(existingDatabase?: IDBDatabase) {
+    this.dbPromise = existingDatabase ? Promise.resolve(existingDatabase) : null;
+  }
 
   private db(): Promise<IDBDatabase> {
     if (!this.dbPromise) this.dbPromise = openDatabase();
@@ -126,4 +131,37 @@ export class WebStorageAdapter implements StorageAdapter {
     }
     await txDone(tx);
   }
+}
+
+/** Open the old browser database without creating a new empty one when it is absent. */
+export async function openExistingLegacyDatabase(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === 'undefined') return null;
+  if (typeof indexedDB.databases === 'function') {
+    try {
+      const databases = await indexedDB.databases();
+      if (!databases.some((database) => database.name === LEGACY_DB_NAME)) return null;
+    } catch {
+      // Fall back to a versionless open; the upgrade callback below aborts creation if absent.
+    }
+  }
+  return new Promise((resolve, reject) => {
+    let createdDuringCheck = false;
+    const request = indexedDB.open(LEGACY_DB_NAME);
+    request.onupgradeneeded = () => {
+      createdDuringCheck = true;
+      request.transaction?.abort();
+    };
+    request.onsuccess = () => {
+      if (createdDuringCheck) {
+        request.result.close();
+        resolve(null);
+      } else {
+        resolve(request.result);
+      }
+    };
+    request.onerror = () => {
+      if (createdDuringCheck) resolve(null);
+      else reject(request.error ?? new Error('无法检查旧的浏览器资料'));
+    };
+  });
 }

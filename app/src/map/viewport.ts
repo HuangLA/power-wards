@@ -113,7 +113,8 @@ export interface VisibleTile {
   row: number;
   x: number;
   y: number;
-  size: number;
+  width: number;
+  height: number;
 }
 
 export function visibleTiles(meta: MapMeta, view: ViewState, viewport: Size): VisibleTile[] {
@@ -129,7 +130,19 @@ export function visibleTiles(meta: MapMeta, view: ViewState, viewport: Size): Vi
   const tiles: VisibleTile[] = [];
   for (let row = rowStart; row <= rowEnd; row++) {
     for (let col = colStart; col <= colEnd; col++) {
-      tiles.push({ z, col, row, x: col * tileWorld, y: row * tileWorld, size: tileWorld });
+      const pixelX = col * meta.tileSize;
+      const pixelY = row * meta.tileSize;
+      const pixelWidth = Math.min(meta.tileSize, level.width - pixelX);
+      const pixelHeight = Math.min(meta.tileSize, level.height - pixelY);
+      tiles.push({
+        z,
+        col,
+        row,
+        x: pixelX / level.scale,
+        y: pixelY / level.scale,
+        width: pixelWidth / level.scale,
+        height: pixelHeight / level.scale,
+      });
     }
   }
   return tiles;

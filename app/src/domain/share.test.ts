@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createProfile, createWard } from './profile';
-import { decodeShare, importAsProfile, serializeProfile, SHARE_FORMAT, SHARE_FORMAT_VERSION, ShareFormatError } from './share';
+import { decodeShare, importAsProfile, serializeProfile, MAX_SHARE_FILE_BYTES, SHARE_FORMAT, SHARE_FORMAT_VERSION, ShareFormatError } from './share';
 import { CURRENT_MAP_VERSION } from './types';
 
 const NOW = '2026-09-23T00:00:00.000Z';
@@ -95,6 +95,12 @@ describe('分享 JSON 校验', () => {
     const longDesc = base();
     longDesc.profile.wards[0].description = 'x'.repeat(20001);
     expect(() => decodeShare(encode(longDesc))).toThrow(ShareFormatError);
+  });
+
+  it('按 UTF-8 字节限制分享文件，拒绝字符数较短但字节数超限的内容', () => {
+    const multibyteText = '中'.repeat(Math.ceil(MAX_SHARE_FILE_BYTES / 3));
+    expect(multibyteText.length).toBeLessThan(MAX_SHARE_FILE_BYTES);
+    expect(() => decodeShare(multibyteText)).toThrow(/文件过大/);
   });
 
   it('拒绝超限数量与混入的截图字段被忽略', () => {

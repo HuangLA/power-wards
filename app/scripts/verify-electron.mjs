@@ -10,6 +10,12 @@ const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(appDir, 'verification');
 fs.mkdirSync(outDir, { recursive: true });
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'power-wards-e2e-'));
+const runtimeDir = path.join(dataDir, 'runtime');
+const packagedExe = process.env.POWER_WARDS_TEST_EXECUTABLE;
+const launchTarget = packagedExe
+  ? { executablePath: packagedExe, cwd: path.dirname(packagedExe) }
+  : { args: ['.'], cwd: appDir };
+const testEnv = { ...process.env, POWER_WARDS_DATA_DIR: dataDir, POWER_WARDS_RUNTIME_DIR: runtimeDir };
 
 const results = [];
 function check(name, ok, detail = '') {
@@ -28,9 +34,8 @@ if (!fs.existsSync(tinyPng)) {
 let app;
 try {
   app = await electron.launch({
-    args: ['.'],
-    cwd: appDir,
-    env: { ...process.env, POWER_WARDS_DATA_DIR: dataDir },
+    ...launchTarget,
+    env: testEnv,
   });
   const page = await app.firstWindow();
   await page.waitForSelector('.map-tile', { timeout: 20000 });
@@ -38,6 +43,7 @@ try {
 
   const storedViaBridge = await page.evaluate(() => typeof window.powerWards !== 'undefined' && window.powerWards.platform === 'electron');
   check('D02 使用桌面受控桥接存储', storedViaBridge);
+  check('D02a Electron 运行缓存位于独立目录', fs.existsSync(path.join(runtimeDir, 'session')));
 
   // 新增眼位
   const box = await page.locator('.map-container').boundingBox();
@@ -84,7 +90,7 @@ try {
   check('D07 选择保存后写入并关闭', savedAfter.wards[0]?.name === '桌面端眼位·改');
 
   // 重启读取
-  const app2 = await electron.launch({ args: ['.'], cwd: appDir, env: { ...process.env, POWER_WARDS_DATA_DIR: dataDir } });
+  const app2 = await electron.launch({ ...launchTarget, env: testEnv });
   const page2 = await app2.firstWindow();
   await page2.waitForSelector('.ward-marker', { timeout: 20000 });
   await page2.locator('.ward-marker').click();
@@ -95,7 +101,7 @@ try {
   await page2.screenshot({ path: path.join(outDir, 'electron-final.png') });
   await app2.close();
 } catch (error) {
-  check('桌面端验证异常', false, String(error).slice(0, 300));
+  check('桌面端验证异常', false, String(error));
   try {
     if (app) await app.close();
   } catch {}

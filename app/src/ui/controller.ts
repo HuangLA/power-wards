@@ -54,7 +54,8 @@ export interface FilterState {
 }
 
 export interface AppState {
-  status: 'loading' | 'ready';
+  status: 'loading' | 'ready' | 'error';
+  startupError: string | null;
   profiles: ProfileMeta[];
   draft: Profile | null;
   saved: Profile | null;
@@ -67,7 +68,7 @@ export interface AppState {
 
 export interface ExportResult {
   ok: boolean;
-  reason?: 'cancelled' | 'save-failed' | 'empty';
+  reason?: 'cancelled' | 'save-failed' | 'changed-during-save' | 'empty';
   fileName?: string;
   content?: string;
 }
@@ -82,6 +83,7 @@ function clone<T>(value: T): T {
 export class AppController {
   private state: AppState = {
     status: 'loading',
+    startupError: null,
     profiles: [],
     draft: null,
     saved: null,
@@ -95,6 +97,8 @@ export class AppController {
   private listeners = new Set<() => void>();
   private deleted: RemovedWard | null = null;
   private screenshotCache = new Map<string, Blob>();
+  private uploadingScreenshotIds = new Set<string>();
+  private savePromise: Promise<boolean> | null = null;
 
   constructor(
     private storage: StorageAdapter,
@@ -118,19 +122,31 @@ export class AppController {
   }
 
   async init(): Promise<void> {
-    let profiles = await this.storage.listProfiles();
-    if (profiles.length === 0) {
-      const profile = createProfile('我的眼位', CURRENT_MAP_VERSION);
-      await this.storage.saveProfile(profile);
-      profiles = await this.storage.listProfiles();
+    this.setState({ status: 'loading', startupError: null });
+    try {
+      const startupNotice = await this.storage.initialize?.();
+      let profiles = await this.storage.listProfiles();
+      if (profiles.length === 0) {
+        const profile = createProfile('我的眼位', CURRENT_MAP_VERSION);
+        await this.storage.saveProfile(profile);
+        profiles = await this.storage.listProfiles();
+      }
+      const first = await this.storage.loadProfile(profiles[0].id);
+      const toasts = startupNotice ? [{ id: newId(), message: startupNotice }] : this.state.toasts;
+      this.setState({ status: 'ready', startupError: null, profiles, draft: clone(first), saved: clone(first), toasts });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '本机数据服务初始化失败';
+      this.setState({ status: 'error', startupError: message });
     }
-    const first = await this.storage.loadProfile(profiles[0].id);
-    this.setState({ status: 'ready', profiles, draft: clone(first), saved: clone(first) });
   }
 
   private async refreshProfiles(): Promise<void> {
     const profiles = await this.storage.listProfiles();
     this.setState({ profiles });
+  }
+
+  private async waitForPendingSave(): Promise<boolean> {
+    return this.savePromise ? this.savePromise : true;
   }
 
   allTags(): string[] {
@@ -167,15 +183,15 @@ export class AppController {
   }
 
   toggleTag(tag: string): void {
-    const all = this.allTags();
     const current = this.state.filters.tagSelection;
-    const next = current === null ? new Set(all.filter((t) => t !== tag)) : new Set(current);
+    if (!this.allTags().includes(tag)) return;
+    // 从“全部眼位”点击标签时直接筛选该标签；显式选中所有标签仍排除无标签眼位。
+    const next = current === null ? new Set([tag]) : new Set(current);
     if (current !== null) {
       if (next.has(tag)) next.delete(tag);
       else next.add(tag);
     }
-    const normalized = next.size === 0 || all.every((t) => next.has(t)) ? null : next;
-    this.setState({ filters: { ...this.state.filters, tagSelection: normalized } });
+    this.setState({ filters: { ...this.state.filters, tagSelection: next } });
   }
 
   resetFilters(): void {
@@ -242,25 +258,48 @@ export class AppController {
     const ward = draft.wards.find((w) => w.id === wardId);
     if (!ward) return;
     const accepted: string[] = [];
-    for (const file of files) {
-      if (!(SCREENSHOT_ACCEPT as readonly string[]).includes(file.type)) {
-        await this.dialogs.notice(`不支持的截图格式：${file.name}（仅 PNG / JPG / WebP）`);
-        continue;
+    const pendingIds: string[] = [];
+    try {
+      for (const file of files) {
+        if (!(SCREENSHOT_ACCEPT as readonly string[]).includes(file.type)) {
+          await this.dialogs.notice(`不支持的截图格式：${file.name}（仅 PNG / JPG / WebP）`);
+          continue;
+        }
+        if (file.size > MAX_SCREENSHOT_BYTES) {
+          await this.dialogs.notice(`截图超过 8 MB 限制：${file.name}`);
+          continue;
+        }
+        const currentWard = this.state.draft?.id === draft.id ? this.state.draft.wards.find((w) => w.id === wardId) : null;
+        if (!currentWard || currentWard.screenshotIds.length + accepted.length >= MAX_SCREENSHOTS_PER_WARD) {
+          if (currentWard) await this.dialogs.notice(`每个眼位最多 ${MAX_SCREENSHOTS_PER_WARD} 张截图`);
+          break;
+        }
+        const id = newId();
+        pendingIds.push(id);
+        this.uploadingScreenshotIds.add(id);
+        try {
+          await this.storage.putScreenshot(draft.id, wardId, id, file);
+          this.screenshotCache.set(id, file);
+          accepted.push(id);
+        } catch (error) {
+          console.error('截图保存失败', error);
+          await this.dialogs.notice(`截图保存失败：${file.name}`);
+        }
       }
-      if (file.size > MAX_SCREENSHOT_BYTES) {
-        await this.dialogs.notice(`截图超过 8 MB 限制：${file.name}`);
-        continue;
+      if (accepted.length > 0) {
+        const currentWard = this.state.draft?.id === draft.id ? this.state.draft.wards.find((w) => w.id === wardId) : null;
+        if (currentWard) {
+          this.patchWard(wardId, { screenshotIds: [...currentWard.screenshotIds, ...accepted] });
+        } else {
+          for (const id of accepted) {
+            await this.storage.deleteScreenshot(draft.id, id);
+            this.screenshotCache.delete(id);
+          }
+        }
       }
-      if (ward.screenshotIds.length + accepted.length >= MAX_SCREENSHOTS_PER_WARD) {
-        await this.dialogs.notice(`每个眼位最多 ${MAX_SCREENSHOTS_PER_WARD} 张截图`);
-        break;
-      }
-      const id = newId();
-      await this.storage.putScreenshot(draft.id, wardId, id, file);
-      this.screenshotCache.set(id, file);
-      accepted.push(id);
+    } finally {
+      for (const id of pendingIds) this.uploadingScreenshotIds.delete(id);
     }
-    if (accepted.length > 0) this.patchWard(wardId, { screenshotIds: [...ward.screenshotIds, ...accepted] });
   }
 
   async removeScreenshot(wardId: string, screenshotId: string): Promise<void> {
@@ -286,22 +325,44 @@ export class AppController {
     const referenced = new Set(profile.wards.flatMap((ward) => ward.screenshotIds));
     const stored = await this.storage.listScreenshots(profile.id);
     for (const id of stored) {
-      if (!referenced.has(id)) {
+      const current = this.state.draft?.id === profile.id ? this.state.draft : null;
+      const referencedByCurrentDraft = current?.wards.some((ward) => ward.screenshotIds.includes(id)) ?? false;
+      if (!referenced.has(id) && !referencedByCurrentDraft && !this.uploadingScreenshotIds.has(id)) {
         await this.storage.deleteScreenshot(profile.id, id);
         this.screenshotCache.delete(id);
       }
     }
   }
 
-  async save(): Promise<boolean> {
+  save(): Promise<boolean> {
+    if (this.savePromise) return this.savePromise;
+    const operation = this.saveCurrentDraft();
+    this.savePromise = operation;
+    const clearPending = () => {
+      if (this.savePromise === operation) this.savePromise = null;
+    };
+    operation.then(clearPending, clearPending);
+    return operation;
+  }
+
+  private async saveCurrentDraft(): Promise<boolean> {
     const { draft } = this.state;
     if (!draft) return true;
+    const deletedAtStart = this.deleted;
     try {
       const toSave = { ...draft, updatedAt: new Date().toISOString() };
       await this.storage.saveProfile(toSave);
-      await this.cleanupOrphanScreenshots(toSave);
-      this.deleted = null;
-      this.setState({ draft: clone(toSave), saved: clone(toSave), dirty: false });
+      if (this.state.draft === draft) await this.cleanupOrphanScreenshots(toSave);
+      if (this.deleted === deletedAtStart) this.deleted = null;
+      const current = this.state.draft;
+      if (current?.id === draft.id) {
+        const unchanged = current === draft;
+        this.setState({
+          draft: unchanged ? clone(toSave) : current,
+          saved: clone(toSave),
+          dirty: !unchanged,
+        });
+      }
       await this.refreshProfiles();
       return true;
     } catch (error) {
@@ -312,17 +373,24 @@ export class AppController {
   }
 
   async saveAs(): Promise<boolean> {
-    const { draft, profiles } = this.state;
-    if (!draft) return false;
-    const name = await this.dialogs.promptName('另存为', uniqueProfileName(draft.name, profiles.map((p) => p.name)));
+    if (!(await this.waitForPendingSave())) return false;
+    const initialDraft = this.state.draft;
+    if (!initialDraft) return false;
+    const name = await this.dialogs.promptName('另存为', uniqueProfileName(initialDraft.name, this.state.profiles.map((p) => p.name)));
     if (name === null) return false;
+    const draft = this.state.draft;
+    if (!draft) return false;
     try {
-      const copy = cloneProfileAs(draft, name, profiles.map((p) => p.name));
+      const copy = cloneProfileAs(draft, name, this.state.profiles.map((p) => p.name));
       const shotIds = copy.wards.flatMap((ward) => ward.screenshotIds);
       await this.storage.copyScreenshots(draft.id, copy.id, shotIds);
       await this.storage.saveProfile(copy);
-      this.deleted = null;
-      this.setState({ draft: clone(copy), saved: clone(copy), dirty: false, selectedWardId: null });
+      if (this.state.draft === draft) {
+        this.deleted = null;
+        this.setState({ draft: clone(copy), saved: clone(copy), dirty: false, selectedWardId: null });
+      } else if (this.state.draft?.id === draft.id) {
+        await this.dialogs.notice('另存为副本已创建；期间的新修改仍留在原 Profile 中，尚未保存。');
+      }
       await this.refreshProfiles();
       return true;
     } catch (error) {
@@ -349,6 +417,10 @@ export class AppController {
       if (choice === 'cancel') return { ok: false, reason: 'cancelled' };
       const saved = choice === 'save' ? await this.save() : await this.saveAs();
       if (!saved) return { ok: false, reason: 'save-failed' };
+      if (this.state.dirty) {
+        await this.dialogs.notice('保存期间出现了新修改，本次未导出。请再次保存后导出。');
+        return { ok: false, reason: 'changed-during-save' };
+      }
     }
     const current = this.state.draft!;
     return {
@@ -361,6 +433,7 @@ export class AppController {
   // ---------- Profile 管理 ----------
 
   private async leaveGuardIfDirty(): Promise<boolean> {
+    if (!(await this.waitForPendingSave())) return false;
     if (!this.state.dirty) return true;
     const choice = await this.dialogs.leaveGuard();
     if (choice === 'cancel') return false;
@@ -411,6 +484,7 @@ export class AppController {
   }
 
   async renameProfile(id: string, name: string): Promise<void> {
+    if (!(await this.waitForPendingSave())) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     const target = await this.storage.loadProfile(id);
@@ -427,6 +501,7 @@ export class AppController {
   }
 
   async deleteProfile(id: string): Promise<boolean> {
+    if (!(await this.waitForPendingSave())) return false;
     const meta = this.state.profiles.find((p) => p.id === id);
     if (!meta) return false;
     if (!(await this.dialogs.confirm(`确定删除 Profile「${meta.name}」？该操作不可恢复。`))) return false;

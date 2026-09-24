@@ -1,9 +1,18 @@
 const { app, BrowserWindow, dialog, ipcMain, net, protocol } = require('electron');
+const fs = require('node:fs');
 const fsp = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const DATA_DIR = process.env.POWER_WARDS_DATA_DIR || path.join(app.getPath('userData'), 'power-wards');
+// Chromium 的缓存和运行状态放在临时目录，避免占用 Profile 所在目录。
+// setPath 必须在 app ready 前调用；数据目录仍沿用原来的位置。
+const RUNTIME_DIR = process.env.POWER_WARDS_RUNTIME_DIR || path.join(os.tmpdir(), 'power-wards-electron-runtime');
+const SESSION_DIR = path.join(RUNTIME_DIR, 'session');
+fs.mkdirSync(SESSION_DIR, { recursive: true });
+app.setPath('userData', RUNTIME_DIR);
+app.setPath('sessionData', SESSION_DIR);
 const PROFILES_DIR = path.join(DATA_DIR, 'profiles');
 const SCREENSHOTS_DIR = path.join(DATA_DIR, 'screenshots');
 const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
@@ -177,8 +186,6 @@ function registerIpc() {
   });
 }
 
-let allowClose = false;
-
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
@@ -196,6 +203,7 @@ function registerAppProtocol() {
 }
 
 function createWindow() {
+  let allowClose = false;
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -218,10 +226,13 @@ function createWindow() {
     }
   });
 
-  ipcMain.on('app:confirm-close', () => {
+  const confirmClose = (event) => {
+    if (event.sender !== win.webContents) return;
     allowClose = true;
     win.close();
-  });
+  };
+  ipcMain.on('app:confirm-close', confirmClose);
+  win.on('closed', () => ipcMain.removeListener('app:confirm-close', confirmClose));
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {

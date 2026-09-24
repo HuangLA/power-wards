@@ -82,25 +82,23 @@ export function SidebarLeft(props: SidebarLeftProps) {
         </div>
         <div className="filter-group">
           <div className="filter-label">自定义标签</div>
-          {props.allTags.length === 0 ? (
-            <p className="muted tiny">暂无标签，可在眼位详情中添加。</p>
-          ) : (
-            <div className="chips">
-              {props.allTags.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  className={`chip${tagSelected(tag) ? ' active' : ''}`}
-                  onClick={() => props.onToggleTag(tag)}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="chips">
+            {props.allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className={`chip${tagSelected(tag) ? ' active' : ''}`}
+                aria-pressed={tagSelected(tag)}
+                onClick={() => props.onToggleTag(tag)}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+          {props.allTags.length === 0 && <p className="muted tiny">暂无标签，可在眼位详情中添加。</p>}
         </div>
         <button type="button" className="reset-button" onClick={props.onResetFilters}>
-          ⟳ 重置筛选
+          ⟳ 全选筛选项
         </button>
         <p className="muted tiny result-count">
           显示 <b>{props.visibleCount}</b> / {props.totalCount} 个眼位

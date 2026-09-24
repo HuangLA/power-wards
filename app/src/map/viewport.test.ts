@@ -123,8 +123,26 @@ describe('切片选择', () => {
       expect(tile.row).toBeGreaterThanOrEqual(0);
       expect(tile.col).toBeLessThan(META.levels[tile.z].cols);
       expect(tile.row).toBeLessThan(META.levels[tile.z].rows);
-      expect(tile.size).toBe(META.tileSize / META.levels[tile.z].scale);
+      const level = META.levels[tile.z];
+      const pixelWidth = Math.min(META.tileSize, level.width - tile.col * META.tileSize);
+      const pixelHeight = Math.min(META.tileSize, level.height - tile.row * META.tileSize);
+      expect(tile.width).toBe(pixelWidth / level.scale);
+      expect(tile.height).toBe(pixelHeight / level.scale);
     }
+  });
+
+  it('边缘切片按实际像素宽高映射，不拉伸到完整切片尺寸', () => {
+    const view = fitView(WORLD, { width: 600, height: 300 });
+    const tiles = visibleTiles(META, view, { width: 600, height: 300 });
+    const full = tiles.find((tile) => tile.z === 0 && tile.col === 0 && tile.row === 0)!;
+    const bottomRight = tiles.find((tile) => tile.z === 0 && tile.col === 1 && tile.row === 1)!;
+
+    expect(full.width).toBe(8192);
+    expect(full.height).toBe(8192);
+    expect(bottomRight.width).toBe((557 - 512) / 0.0625);
+    expect(bottomRight.height).toBe((527 - 512) / 0.0625);
+    expect(bottomRight.width).toBeLessThan(full.width);
+    expect(bottomRight.height).toBeLessThan(full.height);
   });
 
   it('视野外不产生切片', () => {

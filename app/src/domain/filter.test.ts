@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { effectiveTagSelection, visibleWards, wardMatchesCategory, wardMatchesTags } from './filter';
+import { visibleWards, wardMatchesCategory, wardMatchesTags } from './filter';
 import { CATEGORY_KEYS, CategoryKey, Faction, Purpose, Ward, splitCategoryKey } from './types';
 
 function wardWith(categories: CategoryKey[], tags: string[] = []): Pick<Ward, 'categories' | 'tags'> {
@@ -18,15 +18,15 @@ describe('组合分类筛选（A04）', () => {
     expect(wardMatchesCategory(ward, f(['dire'], ['offense']))).toBe(false);
   });
 
-  it('单维度筛选', () => {
-    expect(wardMatchesCategory(ward, f(['radiant'], []))).toBe(true);
-    expect(wardMatchesCategory(ward, f(['dire'], []))).toBe(true);
-    expect(wardMatchesCategory(ward, f([], ['offense']))).toBe(true);
-    expect(wardMatchesCategory(ward, f([], ['defense']))).toBe(true);
+  it('任一维度全不选时无结果', () => {
+    expect(wardMatchesCategory(ward, f(['radiant'], []))).toBe(false);
+    expect(wardMatchesCategory(ward, f(['dire'], []))).toBe(false);
+    expect(wardMatchesCategory(ward, f([], ['offense']))).toBe(false);
+    expect(wardMatchesCategory(ward, f([], ['defense']))).toBe(false);
   });
 
-  it('不限维度时全部可见', () => {
-    expect(wardMatchesCategory(ward, f([], []))).toBe(true);
+  it('两组全选时匹配已有组合，两组全不选时无结果', () => {
+    expect(wardMatchesCategory(ward, f([], []))).toBe(false);
     expect(wardMatchesCategory(ward, f(['radiant', 'dire'], ['offense', 'defense']))).toBe(true);
   });
 
@@ -35,9 +35,10 @@ describe('组合分类筛选（A04）', () => {
     expect(wardMatchesCategory(ward, f(['radiant'], ['offense', 'defense']))).toBe(true);
   });
 
-  it('无分类眼位仅在无约束时可见', () => {
+  it('无分类眼位不匹配分类筛选', () => {
     const uncategorized = wardWith([]);
-    expect(wardMatchesCategory(uncategorized, f([], []))).toBe(true);
+    expect(wardMatchesCategory(uncategorized, f([], []))).toBe(false);
+    expect(wardMatchesCategory(uncategorized, f(['radiant', 'dire'], ['offense', 'defense']))).toBe(false);
     expect(wardMatchesCategory(uncategorized, f(['radiant'], []))).toBe(false);
     expect(wardMatchesCategory(uncategorized, f([], ['offense']))).toBe(false);
   });
@@ -52,10 +53,10 @@ describe('组合分类筛选（A04）', () => {
       for (const factions of factionSets) {
         for (const purposes of purposeSets) {
           const expected =
-            (factions.length === 0 && purposes.length === 0) ||
+            factions.length > 0 && purposes.length > 0 &&
             categories.some((key) => {
               const [faction, purpose] = splitCategoryKey(key);
-              return (factions.length === 0 || factions.includes(faction)) && (purposes.length === 0 || purposes.includes(purpose));
+              return factions.includes(faction) && purposes.includes(purpose);
             });
           expect(wardMatchesCategory(wardWith(categories), f(factions, purposes)), `${categories} × ${factions}/${purposes}`).toBe(expected);
         }
@@ -68,7 +69,7 @@ describe('标签筛选（A13）', () => {
   const tagged = wardWith([], ['河道', '高台']);
   const untagged = wardWith([], []);
 
-  it('初始全选（null）不限制，含无标签眼位', () => {
+  it('全部眼位（null）不限制，含无标签眼位', () => {
     expect(wardMatchesTags(tagged, null)).toBe(true);
     expect(wardMatchesTags(untagged, null)).toBe(true);
   });
@@ -79,28 +80,28 @@ describe('标签筛选（A13）', () => {
     expect(wardMatchesTags(tagged, new Set(['肉山']))).toBe(false);
   });
 
-  it('部分选择时无标签眼位不显示', () => {
+  it('显式选择标签时无标签眼位不显示，即使所有标签都被选中', () => {
     expect(wardMatchesTags(untagged, new Set(['河道']))).toBe(false);
+    expect(wardMatchesTags(untagged, new Set(['河道', '高台']))).toBe(false);
   });
 
-  it('全部不选视为不限制（定稿决策）', () => {
-    expect(wardMatchesTags(tagged, new Set())).toBe(true);
-    expect(wardMatchesTags(untagged, new Set())).toBe(true);
-  });
-
-  it('effectiveTagSelection：全选或空选择归一为 null', () => {
-    expect(effectiveTagSelection(new Set(), ['a', 'b'])).toBeNull();
-    expect(effectiveTagSelection(new Set(['a', 'b']), ['a', 'b'])).toBeNull();
-    expect(effectiveTagSelection(new Set(['a']), ['a', 'b'])).toEqual(new Set(['a']));
+  it('全部不选时无结果', () => {
+    expect(wardMatchesTags(tagged, new Set())).toBe(false);
+    expect(wardMatchesTags(untagged, new Set())).toBe(false);
   });
 
   it('visibleWards 同时应用分类与标签', () => {
     const wards = [
       wardWith(['radiant-offense'], ['河道']),
-      wardWith(['dire-defense'], ['高台']),
+      wardWith(['radiant-offense'], ['高台']),
       wardWith(['radiant-offense'], []),
     ];
     const result = visibleWards(wards, f(['radiant'], ['offense']), new Set(['河道']));
     expect(result).toEqual([wards[0]]);
+    expect(visibleWards(wards, f(['radiant'], ['offense']), new Set(['高台']))).toEqual([wards[1]]);
+    expect(visibleWards(wards, f(['radiant'], ['offense']), new Set(['河道', '高台']))).toEqual([wards[0], wards[1]]);
+    expect(visibleWards(wards, f(['radiant'], ['offense']), null)).toEqual(wards);
+    expect(visibleWards(wards, f(['radiant'], ['offense']), new Set())).toEqual([]);
+    expect(visibleWards(wards, f([], ['offense']), null)).toEqual([]);
   });
 });
